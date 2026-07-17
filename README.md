@@ -1,40 +1,63 @@
 # 剪贴笺 CVSticky for macOS
 
-CVSticky 的原生 macOS 版本。项目使用 Swift 6、SwiftUI 和 AppKit 构建，只面向 macOS。
+CVSticky 的原生 macOS 版本，使用 SwiftUI、AppKit、WebKit 和 Swift 6 构建，只面向 Apple Silicon Mac。
 
-## 当前基础能力
+## 系统要求与视觉
 
-- 原生 SwiftUI 三栏便签界面
-- 监控文本剪贴板并保留最近 100 条记录
-- 菜单栏快速查看、复制和固定剪贴内容
-- Markdown 文件型便签，兼容 `~/.cvsticky/<便签>/note.md`
-- 应用内最近删除、恢复与彻底删除
-- 浅色、深色和跟随系统外观
+- 最低系统：macOS 12 Monterey。
+- 芯片：Apple Silicon，覆盖 M1 及之后所有 M 系列芯片。
+- macOS 26 及更高版本：使用系统原生 Liquid Glass。
+- macOS 12–15：自动降级到 `NSVisualEffectView` 原生半透明材质，功能保持一致。
+
+## 功能
+
+- 文本、富文本、图片和文件剪贴板历史，普通记录保留最近 100 条。
+- `Option+V` 全局快捷浮窗，支持搜索、键盘选择、复制、删除和多显示器定位。
+- 原文固定为便签，以及 OpenAI Chat Completions 兼容接口的流式 AI 整理方案。
+- Markdown 文件型便签，兼容 `~/.cvsticky/<便签>/note.md` 与 `for-cvsticky`/`for-clipboard` 元数据。
+- Markdown 编辑工具栏：标题、粗体、斜体、下划线、删除线、列表、任务、引用、链接、图片、表格、LaTeX 和 Mermaid。
+- GFM、任务列表回写、代码高亮、本地图片、KaTeX 与 Mermaid 原生预览。
+- 搜索、标签/颜色筛选、列表/网格视图、自定义右键菜单。
+- 最近删除、恢复、彻底删除、ZIP 导入导出。
+- 浅色、深色、跟随系统、主题色、快捷键和 AI 设置。
+- API Key 保存在 macOS 钥匙串。
+- 原生菜单栏入口，关闭主窗口后继续监控剪贴板。
 
 ## 开发
 
-当前工程可直接使用 Swift Package Manager 构建：
+需要包含 macOS 26 SDK 的完整 Xcode：
 
 ```bash
 swift build
+swift test
 swift run CVSticky
 ```
 
-完整的签名、沙盒、快捷键、图片剪贴与发行包会在后续原生 macOS 迭代中补齐。桌面发行需要安装完整 Xcode。
+构建可分发的 Apple Silicon App：
+
+```bash
+scripts/build-app.sh
+```
+
+产物位于：
+
+```text
+dist/CVSticky.app
+dist/CVSticky-macOS-arm64.zip
+```
 
 ## 数据目录
-
-便签继续使用可直接编辑和备份的文件结构：
 
 ```text
 ~/.cvsticky/
 ├── <note-id>/
-│   └── note.md
+│   ├── note.md
+│   └── img/
 └── trash/
 ```
 
-剪贴板历史保存在：
+剪贴板历史与临时图片保存在：
 
 ```text
-~/Library/Application Support/CVSticky/clipboard-history.json
+~/Library/Application Support/CVSticky/
 ```

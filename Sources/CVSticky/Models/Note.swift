@@ -7,5 +7,6 @@ struct Note: Identifiable, Hashable, Sendable {
     var tags: [String]
     var color: String?
     let folderURL: URL
+    var createdAt: Date
     var updatedAt: Date
 }
