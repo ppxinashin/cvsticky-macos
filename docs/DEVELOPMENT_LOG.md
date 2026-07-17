@@ -82,6 +82,13 @@
 - 合并 PR 后，以 `v*` 标签触发 GitHub Release 构建。
 - 面向普通用户正式分发时，应改用 Developer ID Application 签名并完成 Apple 公证；当前脚本生成的是适合开发验收的临时签名构建。
 
+## 2026-07-17：v0.1.0 预发布打包修正
+
+- 新增 macOS 风格 app 图标，并写入 `CFBundleIconFile`。
+- DMG 打包加入 `Applications -> /Applications` 快捷入口，支持用户直接拖动安装。
+- 构建脚本支持通过 `CODE_SIGN_IDENTITY` 使用 Developer ID 签名；未提供证书时继续使用 ad-hoc 签名。
+- Release workflow 优先使用仓库内 `docs/release-notes/<tag>.md` 作为 GitHub Release 说明。
+
 ## 2026-07-17：合并前审查修复
 
 - 修复编辑状态下从 Markdown 预览勾选任务可能覆盖未保存标题、标签和颜色的问题。

@@ -5,6 +5,7 @@
   <key>CFBundleDisplayName</key><string>剪贴笺</string>
   <key>CFBundleExecutable</key><string>CVSticky</string>
   <key>CFBundleIdentifier</key><string>com.cvsticky.macos</string>
+  <key>CFBundleIconFile</key><string>CVSticky</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>CVSticky</string>
   <key>CFBundlePackageType</key><string>APPL</string>

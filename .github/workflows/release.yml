@@ -41,13 +41,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          notes_file="docs/release-notes/${RELEASE_TAG}.md"
           args=(
             "$RELEASE_TAG"
             dist/CVSticky-macOS-arm64.dmg
             dist/CVSticky-macOS-arm64.zip
-            --generate-notes
             --title "CVSticky $RELEASE_TAG"
           )
+          if [[ -f "$notes_file" ]]; then
+            args+=(--notes-file "$notes_file")
+          else
+            args+=(--generate-notes)
+          fi
           if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
             args+=(--prerelease)
           fi
