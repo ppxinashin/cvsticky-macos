@@ -9,13 +9,15 @@ final class NoteStore: ObservableObject {
 
     let rootURL: URL
     private let trashURL: URL
+    private let legacyRootURL: URL
 
-    init() {
-        rootURL = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".cvsticky", isDirectory: true)
-        trashURL = rootURL.appendingPathComponent("trash", isDirectory: true)
+    init(rootURL: URL? = nil, legacyRootURL: URL? = nil) {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        self.rootURL = rootURL ?? home.appendingPathComponent(".cvsticky", isDirectory: true)
+        self.legacyRootURL = legacyRootURL ?? home.appendingPathComponent(".clipboard", isDirectory: true)
+        trashURL = self.rootURL.appendingPathComponent("trash", isDirectory: true)
         do {
-            try FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(at: self.rootURL, withIntermediateDirectories: true)
             try FileManager.default.createDirectory(at: trashURL, withIntermediateDirectories: true)
         } catch {
             lastError = error.localizedDescription
@@ -108,12 +110,40 @@ final class NoteStore: ObservableObject {
         }
     }
 
+    /// Persists an interactive task-list change without reloading the complete
+    /// note collection. Reloading here steals the first subsequent WebView
+    /// click, while leaving `notes` untouched makes the checked state disappear
+    /// as soon as the user switches notes. Replace only the matching value so
+    /// the detail view and the file on disk stay in sync without rebuilding the
+    /// collection from disk.
+    @discardableResult
+    func saveTaskState(_ note: Note) -> Bool {
+        do {
+            try FileManager.default.createDirectory(at: note.folderURL, withIntermediateDirectories: true)
+            let body = note.markdown.trimmingCharacters(in: .whitespacesAndNewlines)
+            try (body + metadataBlock(for: note)).write(
+                to: note.folderURL.appendingPathComponent("note.md"),
+                atomically: true,
+                encoding: .utf8
+            )
+            if let index = notes.firstIndex(where: { $0.id == note.id }) {
+                notes[index] = note
+            }
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
     func addImage(_ source: URL, to note: Note) throws -> String {
         let imageFolder = note.folderURL.appendingPathComponent("img", isDirectory: true)
         try FileManager.default.createDirectory(at: imageFolder, withIntermediateDirectories: true)
-        let stem = source.deletingPathExtension().lastPathComponent
-            .replacingOccurrences(of: "/", with: "-")
-        let name = "\(stem)-\(UUID().uuidString.lowercased()).\(source.pathExtension.nonEmpty ?? "png")"
+        let ext = source.pathExtension
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+            .nonEmpty ?? "png"
+        let name = "image-\(UUID().uuidString.lowercased()).\(ext)"
         try FileManager.default.copyItem(at: source, to: imageFolder.appendingPathComponent(name))
         return "img/\(name)"
     }
@@ -158,6 +188,23 @@ final class NoteStore: ObservableObject {
         } catch { lastError = error.localizedDescription }
     }
 
+    func emptyTrash() {
+        do {
+            let items = try FileManager.default.contentsOfDirectory(
+                at: trashURL,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+            for item in items {
+                try FileManager.default.removeItem(at: item)
+            }
+            reload()
+        } catch {
+            lastError = error.localizedDescription
+            reload()
+        }
+    }
+
     func exportNotes(_ selected: [Note]? = nil, to destination: URL) throws {
         let staging = FileManager.default.temporaryDirectory
             .appendingPathComponent("cvsticky-export-\(UUID().uuidString)", isDirectory: true)
@@ -180,6 +227,7 @@ final class NoteStore: ObservableObject {
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: staging) }
         try runDitto(arguments: ["-x", "-k", archive.path, staging.path])
+        try Self.validateArchiveTree(at: staging)
         let candidateRoots = [staging.appendingPathComponent("notes"), staging]
         var imported = 0
         for candidateRoot in candidateRoots where FileManager.default.fileExists(atPath: candidateRoot.path) {
@@ -188,9 +236,12 @@ final class NoteStore: ObservableObject {
                 includingPropertiesForKeys: [.isDirectoryKey],
                 options: [.skipsHiddenFiles]
             )) ?? []
-            for folder in folders where FileManager.default.fileExists(
-                atPath: folder.appendingPathComponent("note.md").path
-            ) {
+            for folder in folders {
+                let values = try folder.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+                guard values.isDirectory == true, values.isSymbolicLink != true else { continue }
+                let noteFile = folder.appendingPathComponent("note.md")
+                let noteValues = try? noteFile.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
+                guard noteValues?.isRegularFile == true, noteValues?.isSymbolicLink != true else { continue }
                 try FileManager.default.copyItem(
                     at: folder,
                     to: uniqueDestination(in: rootURL, name: folder.lastPathComponent)
@@ -222,7 +273,7 @@ final class NoteStore: ObservableObject {
             return Note(
                 id: folder.lastPathComponent,
                 title: parsed.title ?? folder.lastPathComponent,
-                markdown: parsed.markdown,
+                markdown: Self.normalizingLocalImageLinks(in: parsed.markdown),
                 tags: parsed.tags,
                 color: parsed.color,
                 folderURL: folder,
@@ -233,10 +284,12 @@ final class NoteStore: ObservableObject {
     }
 
     private func metadataBlock(for note: Note) -> String {
-        let escapedTitle = note.title.replacingOccurrences(of: "\"", with: "\\\"")
-        let tags = note.tags.map { "\"\($0.replacingOccurrences(of: "\"", with: "\\\""))\"" }
+        let metadata = StoredMetadata(title: note.title, color: note.color, tags: note.tags)
+        let encodedMetadata = (try? JSONEncoder().encode(metadata).base64EncodedString()) ?? ""
+        let escapedTitle = Self.escapeMetadataValue(note.title)
+        let tags = note.tags.map { "\"\(Self.escapeMetadataValue($0))\"" }
             .joined(separator: ", ")
-        return "\n\n```for-cvsticky\ntitle: \"\(escapedTitle)\"\ncolor: \(note.color ?? "default")\ntags: [\(tags)]\n```\n"
+        return "\n\n```for-cvsticky\nmetadata: \(encodedMetadata)\ntitle: \"\(escapedTitle)\"\ncolor: \(note.color ?? "default")\ntags: [\(tags)]\n```\n"
     }
 
     private func parse(_ raw: String) -> (markdown: String, title: String?, color: String?, tags: [String]) {
@@ -255,17 +308,20 @@ final class NoteStore: ObservableObject {
         var tags: [String] = []
         for line in lines {
             let value = line.trimmingCharacters(in: .whitespaces)
-            if value.hasPrefix("title:") {
-                title = String(value.dropFirst(6)).trimmingCharacters(in: CharacterSet(charactersIn: " \""))
+            if value.hasPrefix("metadata:") {
+                let encoded = String(value.dropFirst(9)).trimmingCharacters(in: .whitespaces)
+                if let data = Data(base64Encoded: encoded),
+                   let metadata = try? JSONDecoder().decode(StoredMetadata.self, from: data) {
+                    return (markdown, metadata.title, metadata.color, metadata.tags)
+                }
+            } else if value.hasPrefix("title:") {
+                let rawTitle = String(value.dropFirst(6)).trimmingCharacters(in: .whitespaces)
+                title = Self.unescapeMetadataValue(Self.removingOuterQuotes(rawTitle))
             } else if value.hasPrefix("color:") {
                 let candidate = String(value.dropFirst(6)).trimmingCharacters(in: .whitespaces)
                 color = candidate == "default" ? nil : candidate
             } else if value.hasPrefix("tags:") {
-                tags = String(value.dropFirst(5))
-                    .trimmingCharacters(in: CharacterSet(charactersIn: " []"))
-                    .split(separator: ",")
-                    .map { $0.trimmingCharacters(in: CharacterSet(charactersIn: " \"'")) }
-                    .filter { !$0.isEmpty }
+                tags = Self.parseLegacyTags(String(value.dropFirst(5)))
             }
         }
         return (markdown, title, color, tags)
@@ -298,27 +354,136 @@ final class NoteStore: ObservableObject {
     }
 
     private func migrateLegacyRootIfNeeded() {
-        let legacy = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".clipboard", isDirectory: true)
-        let alreadyHasNotes = ((try? FileManager.default.contentsOfDirectory(
-            at: rootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )) ?? []).contains { folder in
-            FileManager.default.fileExists(atPath: folder.appendingPathComponent("note.md").path)
-        }
-        guard FileManager.default.fileExists(atPath: legacy.path), !alreadyHasNotes else { return }
+        guard FileManager.default.fileExists(atPath: legacyRootURL.path) else { return }
         let folders = (try? FileManager.default.contentsOfDirectory(
-            at: legacy,
+            at: legacyRootURL,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )) ?? []
         for folder in folders where FileManager.default.fileExists(atPath: folder.appendingPathComponent("note.md").path) {
-            try? FileManager.default.copyItem(
-                at: folder,
-                to: uniqueDestination(in: rootURL, name: folder.lastPathComponent)
-            )
+            let destination = rootURL.appendingPathComponent(folder.lastPathComponent, isDirectory: true)
+            guard !FileManager.default.fileExists(atPath: destination.appendingPathComponent("note.md").path) else {
+                continue
+            }
+            do {
+                try FileManager.default.copyItem(
+                    at: folder,
+                    to: FileManager.default.fileExists(atPath: destination.path)
+                        ? uniqueDestination(in: rootURL, name: folder.lastPathComponent)
+                        : destination
+                )
+            } catch {
+                lastError = "迁移便签 \(folder.lastPathComponent) 失败：\(error.localizedDescription)"
+            }
         }
+    }
+
+    static func validateArchiveTree(at root: URL) throws {
+        let keys: [URLResourceKey] = [.isSymbolicLinkKey, .isRegularFileKey, .fileSizeKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: keys,
+            options: []
+        ) else { throw StoreError.unsafeArchive }
+
+        var itemCount = 0
+        var totalBytes: Int64 = 0
+        for case let url as URL in enumerator {
+            itemCount += 1
+            guard itemCount <= 10_000 else { throw StoreError.archiveTooLarge }
+            let values = try url.resourceValues(forKeys: Set(keys))
+            guard values.isSymbolicLink != true else { throw StoreError.unsafeArchive }
+            if values.isRegularFile == true {
+                totalBytes += Int64(values.fileSize ?? 0)
+                guard totalBytes <= 512 * 1_024 * 1_024 else { throw StoreError.archiveTooLarge }
+            }
+        }
+    }
+
+    static func normalizingLocalImageLinks(in markdown: String) -> String {
+        let pattern = #"(!\[[^\]]*\]\()((?:\.?/)?img/[^)\n]+)(\))"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return markdown }
+        var result = markdown
+        let originalRange = NSRange(markdown.startIndex..., in: markdown)
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~/"))
+        for match in regex.matches(in: markdown, range: originalRange).reversed() {
+            guard let originalPathRange = Range(match.range(at: 2), in: markdown),
+                  let resultPathRange = Range(match.range(at: 2), in: result) else { continue }
+            let originalPath = String(markdown[originalPathRange])
+            let decodedPath = originalPath.removingPercentEncoding ?? originalPath
+            guard let encodedPath = decodedPath.addingPercentEncoding(withAllowedCharacters: allowed) else { continue }
+            result.replaceSubrange(resultPathRange, with: encodedPath)
+        }
+        return result
+    }
+
+    private static func escapeMetadataValue(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
+    }
+
+    private static func unescapeMetadataValue(_ value: String) -> String {
+        var result = ""
+        var escaping = false
+        for character in value {
+            if escaping {
+                switch character {
+                case "n": result.append("\n")
+                case "r": result.append("\r")
+                default: result.append(character)
+                }
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            } else {
+                result.append(character)
+            }
+        }
+        if escaping { result.append("\\") }
+        return result
+    }
+
+    private static func removingOuterQuotes(_ value: String) -> String {
+        guard value.count >= 2,
+              let first = value.first,
+              let last = value.last,
+              (first == "\"" && last == "\"") || (first == "'" && last == "'")
+        else { return value }
+        return String(value.dropFirst().dropLast())
+    }
+
+    private static func parseLegacyTags(_ value: String) -> [String] {
+        let content = value.trimmingCharacters(in: CharacterSet(charactersIn: " []"))
+        var tags: [String] = []
+        var current = ""
+        var quote: Character?
+        var escaping = false
+        for character in content {
+            if escaping {
+                current.append("\\")
+                current.append(character)
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            } else if let activeQuote = quote {
+                if character == activeQuote { quote = nil } else { current.append(character) }
+            } else if character == "\"" || character == "'" {
+                quote = character
+            } else if character == "," {
+                let tag = unescapeMetadataValue(current.trimmingCharacters(in: .whitespaces))
+                if !tag.isEmpty { tags.append(tag) }
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        if escaping { current.append("\\") }
+        let tag = unescapeMetadataValue(current.trimmingCharacters(in: .whitespaces))
+        if !tag.isEmpty { tags.append(tag) }
+        return tags
     }
 
     private func runDitto(arguments: [String]) throws {
@@ -334,11 +499,21 @@ final class NoteStore: ObservableObject {
 enum StoreError: LocalizedError {
     case invalidImagePath
     case archiveFailed
+    case unsafeArchive
+    case archiveTooLarge
 
     var errorDescription: String? {
         switch self {
         case .invalidImagePath: return "图片路径不合法"
         case .archiveFailed: return "便签归档操作失败"
+        case .unsafeArchive: return "导入包包含不安全的符号链接"
+        case .archiveTooLarge: return "导入包内容过多或体积过大"
         }
     }
+}
+
+private struct StoredMetadata: Codable {
+    let title: String
+    let color: String?
+    let tags: [String]
 }

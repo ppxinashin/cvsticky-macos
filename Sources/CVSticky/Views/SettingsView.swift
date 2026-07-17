@@ -7,65 +7,30 @@ struct SettingsView: View {
     @EnvironmentObject private var settings: SettingsStore
     @EnvironmentObject private var noteStore: NoteStore
     @EnvironmentObject private var aiService: AIService
-    @Environment(\.presentationMode) private var presentationMode
 
     @State private var aiDraft = AIConfiguration()
     @State private var status = ""
-    @State private var selectedTab = 0
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("设置").font(.title2.bold())
-                Spacer()
-                Button("完成") { presentationMode.wrappedValue.dismiss() }
-            }
-            .padding(18)
-            Divider()
-
-            HStack(alignment: .top, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    tab("外观", symbol: "paintbrush", index: 0)
-                    tab("快捷键", symbol: "keyboard", index: 1)
-                    tab("AI", symbol: "sparkles", index: 2)
-                    tab("数据", symbol: "externaldrive", index: 3)
-                }
-                .padding(12)
-                .frame(width: 145)
-                .background(VisualEffectView(material: .sidebar))
-
-                Group {
-                    switch selectedTab {
-                    case 0: appearancePane
-                    case 1: hotKeyPane
-                    case 2: aiPane
-                    default: dataPane
-                    }
-                }
-                .padding(24)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
+        TabView {
+            settingsTab("外观", symbol: "paintbrush", content: appearancePane)
+            settingsTab("快捷键", symbol: "keyboard", content: hotKeyPane)
+            settingsTab("AI", symbol: "sparkles", content: aiPane)
+            settingsTab("数据", symbol: "externaldrive", content: dataPane)
         }
-        .frame(width: 650, height: 460)
+        .frame(width: 620, height: 400)
         .onAppear { aiDraft = settings.ai }
     }
 
     private var appearancePane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            paneTitle("外观", detail: "macOS 26 及更高版本自动启用 Liquid Glass。")
+            paneTitle("外观", detail: "使用系统外观、材质与强调色。")
             Picker("显示模式", selection: $settings.appearance) {
                 ForEach(AppearanceMode.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            Text("主题色").font(.headline)
-            HStack(spacing: 12) {
-                ForEach(["#0A84FF", "#30D158", "#64D2FF", "#BF5AF2", "#FF375F", "#FF9F0A"], id: \.self) { hex in
-                    Button(action: { settings.accentHex = hex }) {
-                        Circle().fill(Color(nsColor: NSColor(hex: hex)!)).frame(width: 28, height: 28)
-                            .overlay(Circle().stroke(settings.accentHex == hex ? Color.primary : Color.clear, lineWidth: 3))
-                    }.buttonStyle(.plain)
-                }
-            }
+            ColorPicker("主题色", selection: accentColor, supportsOpacity: false)
+                .frame(maxWidth: 280)
         }
     }
 
@@ -113,13 +78,22 @@ struct SettingsView: View {
         }
     }
 
-    private func tab(_ title: String, symbol: String, index: Int) -> some View {
-        Button(action: { selectedTab = index; status = "" }) {
-            HStack { Image(systemName: symbol).frame(width: 18); Text(title); Spacer() }
-                .padding(8)
-                .background(selectedTab == index ? Color.accentColor.opacity(0.16) : Color.clear)
-                .cornerRadius(8)
-        }.buttonStyle(.plain)
+    private func settingsTab<Content: View>(_ title: String, symbol: String, content: Content) -> some View {
+        content
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .tabItem { Label(title, systemImage: symbol) }
+    }
+
+    private var accentColor: Binding<Color> {
+        Binding(
+            get: { Color(nsColor: settings.accentColor) },
+            set: { color in
+                if let hex = NSColor(color).hexString {
+                    settings.accentHex = hex
+                }
+            }
+        )
     }
 
     private func paneTitle(_ title: String, detail: String) -> some View {

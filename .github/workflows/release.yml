@@ -3,6 +3,16 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.0"
+        required: true
+      prerelease:
+        description: "Publish as a GitHub pre-release"
+        required: true
+        default: true
+        type: boolean
 
 permissions:
   contents: write
@@ -10,11 +20,35 @@ permissions:
 jobs:
   release:
     runs-on: macos-26
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_PRERELEASE: ${{ github.event_name != 'workflow_dispatch' || inputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: |
+          if [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          else
+            sudo xcode-select -s "$(find /Applications -maxdepth 2 -path '*/Contents/Developer' -print | sort | tail -n 1)"
+          fi
       - name: Build Apple Silicon app
+        env:
+          CVSTICKY_VERSION: ${{ env.RELEASE_TAG }}
+          CVSTICKY_BUILD_NUMBER: ${{ github.run_number }}
         run: scripts/build-app.sh
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" dist/CVSticky-macOS-arm64.zip --generate-notes --title "CVSticky $GITHUB_REF_NAME"
+        run: |
+          args=(
+            "$RELEASE_TAG"
+            dist/CVSticky-macOS-arm64.dmg
+            dist/CVSticky-macOS-arm64.zip
+            --generate-notes
+            --title "CVSticky $RELEASE_TAG"
+          )
+          if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "${args[@]}"

@@ -5,6 +5,7 @@ struct MarkdownPreview: NSViewRepresentable {
     let markdown: String
     let note: Note
     let darkMode: Bool
+    var taskTogglesEnabled = true
     var onTaskToggle: ((Int, Bool) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator { Coordinator(onTaskToggle: onTaskToggle) }
@@ -21,7 +22,7 @@ struct MarkdownPreview: NSViewRepresentable {
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        let signature = "\(markdown.hashValue)-\(darkMode)-\(note.id)"
+        let signature = "\(markdown.hashValue)-\(darkMode)-\(taskTogglesEnabled)-\(note.id)"
         context.coordinator.onTaskToggle = onTaskToggle
         guard signature != context.coordinator.lastSignature else { return }
         context.coordinator.lastSignature = signature
@@ -38,20 +39,28 @@ struct MarkdownPreview: NSViewRepresentable {
         let secondary = darkMode ? "#a1a1a6" : "#6e6e73"
         let surface = darkMode ? "rgba(255,255,255,.06)" : "rgba(0,0,0,.045)"
         return """
-        <!doctype html><html><head><meta charset="utf-8"><style>
+        <!doctype html><html><head><meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src file: data: https: http:; font-src file: data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'">
+        <style>
         \(katexCSS)
         :root{color-scheme:\(darkMode ? "dark" : "light")}*{box-sizing:border-box}body{margin:0;padding:26px 30px;background:transparent;color:\(foreground);font:15px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.65}a{color:#0a84ff}img{max-width:100%;border-radius:12px}pre{padding:14px 16px;border-radius:12px;background:\(surface);overflow:auto}code{font:13px ui-monospace,SFMono-Regular,Menlo,monospace}blockquote{margin-left:0;padding-left:14px;border-left:3px solid #0a84ff;color:\(secondary)}table{border-collapse:collapse;width:100%}th,td{border:1px solid \(secondary);padding:7px 10px;text-align:left}hr{border:0;border-top:1px solid \(secondary)}.mermaid{background:\(surface);padding:14px;border-radius:12px}.task-list-item{list-style:none}input[type=checkbox]{margin-right:8px}
         </style></head><body><main id="content"></main><script>\(marked)</script><script>\(katex)</script><script>\(mermaid)</script><script>
         const source=decodeURIComponent(escape(atob('\(encoded)')));
+        const escapeHTML=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
         const renderer=new marked.Renderer();
-        renderer.code=function(code,lang){if((lang||'').trim()==='mermaid')return '<div class="mermaid">'+code.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</div>';return '<pre><code class="language-'+(lang||'text')+'">'+code.replaceAll('&','&amp;').replaceAll('<','&lt;')+'</code></pre>'};
+        renderer.html=function(raw){return escapeHTML(raw)};
+        renderer.code=function(code,lang){if((lang||'').trim()==='mermaid')return '<div class="mermaid">'+escapeHTML(code)+'</div>';return '<pre><code class="language-'+escapeHTML(lang||'text')+'">'+escapeHTML(code)+'</code></pre>'};
+        marked.use({extensions:[{
+          name:'underline',level:'inline',start(src){return src.indexOf('++')},
+          tokenizer(src){const match=/^\\+\\+(.+?)\\+\\+/.exec(src);if(!match)return;return{type:'underline',raw:match[0],tokens:this.lexer.inlineTokens(match[1])}},
+          renderer(token){return '<u>'+this.parser.parseInline(token.tokens)+'</u>'}
+        }]});
         marked.setOptions({gfm:true,breaks:true,renderer});
         let html=marked.parse(source);
         html=html.replace(/\\$\\$([\\s\\S]+?)\\$\\$/g,(_,v)=>katex.renderToString(v,{displayMode:true,throwOnError:false})).replace(/\\$([^\\n$]+?)\\$/g,(_,v)=>katex.renderToString(v,{throwOnError:false}));
         document.getElementById('content').innerHTML=html;
-        const escapeHTML=s=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
         document.querySelectorAll('pre code').forEach(el=>{let value=escapeHTML(el.textContent);value=value.replace(/(&quot;|&#39;|"|')([^\\n]*?)\\1/g,'<span style="color:#ff7ab2">$&</span>').replace(/\\b(func|function|let|var|const|class|struct|enum|if|else|for|while|return|async|await|throws|import|from|pub|fn|impl|match|true|false|null|nil|None|def|self)\\b/g,'<span style="color:#bf5af2;font-weight:600">$1</span>').replace(/(\\/\\/[^\\n]*|#[^\\n]*)/g,'<span style="color:#6c7986">$1</span>');el.innerHTML=value});
-        document.querySelectorAll('input[type=checkbox]').forEach((box,index)=>{box.disabled=false;box.dataset.taskIndex=index;box.addEventListener('change',()=>window.webkit.messageHandlers.taskToggle.postMessage({index:index,checked:box.checked}))});
+        document.querySelectorAll('input[type=checkbox]').forEach((box,index)=>{box.disabled=\(taskTogglesEnabled ? "false" : "true");box.dataset.taskIndex=index;box.addEventListener('change',()=>window.webkit.messageHandlers.taskToggle.postMessage({index:index,checked:box.checked}))});
         mermaid.initialize({startOnLoad:false,theme:'\(darkMode ? "dark" : "default")'});mermaid.run({querySelector:'.mermaid'}).catch(()=>{});
         </script></body></html>
         """
@@ -85,11 +94,11 @@ struct MarkdownPreview: NSViewRepresentable {
                 decisionHandler(.allow)
                 return
             }
-            if ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+            if ["http", "https", "mailto", "file"].contains(url.scheme?.lowercased() ?? "") {
                 NSWorkspace.shared.open(url)
                 decisionHandler(.cancel)
             } else {
-                decisionHandler(.allow)
+                decisionHandler(.cancel)
             }
         }
     }

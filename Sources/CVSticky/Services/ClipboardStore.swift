@@ -153,11 +153,21 @@ final class ClipboardStore: ObservableObject {
     }
 
     private func trimHistory() {
-        let kept = Array(entries.prefix(100)) + entries.dropFirst(100).filter(\.isPinned)
+        let kept = Self.retainedHistory(from: entries)
         let allowed = Set(kept.map(\.id))
         let removed = entries.filter { !allowed.contains($0.id) }
         entries = kept
         removed.forEach(removeAssetIfNeeded)
+    }
+
+    static func retainedHistory(from entries: [ClipboardEntry], maxUnpinned: Int = 100) -> [ClipboardEntry] {
+        var remainingUnpinned = max(0, maxUnpinned)
+        return entries.filter { entry in
+            if entry.isPinned { return true }
+            guard remainingUnpinned > 0 else { return false }
+            remainingUnpinned -= 1
+            return true
+        }
     }
 
     private func removeAssetIfNeeded(_ entry: ClipboardEntry) {

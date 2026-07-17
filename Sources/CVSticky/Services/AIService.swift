@@ -12,8 +12,18 @@ final class AIService: ObservableObject {
         self.settings = settings
     }
 
-    func generateActions(for content: String) async -> [AIPinAction] {
-        let fallback = fallbackActions(content: content)
+    func generateActions(
+        for content: String,
+        kind: AITransformKind = .smart,
+        requirement: String = "",
+        targetLanguage: String = "简体中文"
+    ) async -> [AIPinAction] {
+        let fallback = fallbackActions(
+            content: content,
+            kind: kind,
+            requirement: requirement,
+            targetLanguage: targetLanguage
+        )
         guard settings.ai.enabled,
               !settings.ai.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !settings.ai.model.isEmpty else { return fallback }
@@ -21,7 +31,14 @@ final class AIService: ObservableObject {
         streamedText = ""
         defer { isLoading = false }
         do {
-            let system = "你是 CVSticky 剪贴笺的便签整理助手。返回 JSON 数组，每项必须包含 id、label、prompt、title、content_markdown。生成原文保存、优化表达、任务清单、摘要、结构化和美化排版等方案。不要返回 JSON 以外的解释。"
+            let requirementLine = requirement.trimmingCharacters(in: .whitespacesAndNewlines)
+            let system = """
+            你是 CVSticky 的便签写作助手。返回 JSON 数组，每项必须包含 id、label、prompt、title、content_markdown。
+            当前处理方式：\(kind.title)。目标：\(kind.instruction)。
+            \(kind == .translate ? "目标语言：\(targetLanguage)。" : "")
+            \(requirementLine.isEmpty ? "用户没有补充要求，请根据内容灵活判断。" : "用户补充要求：\(requirementLine)")
+            至少给出 3 个有实际差异的方案；可以保留一个原文方案。保留事实，不虚构信息，只输出 JSON。
+            """
             let answer = try await streamChat(system: system, user: String(content.prefix(12_000)))
             streamedText = answer
             let parsed = parseActions(answer)
@@ -137,12 +154,22 @@ final class AIService: ObservableObject {
         return candidate.data(using: .utf8).flatMap { try? JSONDecoder().decode([AIPinAction].self, from: $0) } ?? []
     }
 
-    private func fallbackActions(content: String) -> [AIPinAction] {
-        [
+    private func fallbackActions(
+        content: String,
+        kind: AITransformKind,
+        requirement: String,
+        targetLanguage: String
+    ) -> [AIPinAction] {
+        let custom = requirement.trimmingCharacters(in: .whitespacesAndNewlines)
+        let scopedInstruction = [
+            kind.instruction,
+            kind == .translate ? "目标语言为\(targetLanguage)" : nil,
+            custom.isEmpty ? nil : "补充要求：\(custom)"
+        ].compactMap { $0 }.joined(separator: "；")
+        return [
             AIPinAction(id: "save", label: "原文保存", prompt: "保留原始内容", title: String(content.prefix(24)), contentMarkdown: content),
-            AIPinAction(id: "improve", label: "优化表达", prompt: "在不改变事实的前提下优化表达", title: "优化表达", contentMarkdown: content),
-            AIPinAction(id: "todo", label: "转换清单", prompt: "整理为 Markdown 任务清单", title: "任务清单", contentMarkdown: content),
-            AIPinAction(id: "polish", label: "美化排版", prompt: "整理为层级清晰的 Markdown", title: "美化排版", contentMarkdown: content)
+            AIPinAction(id: kind.rawValue, label: kind.title, prompt: scopedInstruction, title: kind.title, contentMarkdown: content),
+            AIPinAction(id: "alternate", label: "另一种方案", prompt: "\(scopedInstruction)；换一种组织方式和表达风格", title: "\(kind.title)方案", contentMarkdown: content)
         ]
     }
 }

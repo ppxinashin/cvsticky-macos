@@ -8,6 +8,7 @@ final class MarkdownEditorBridge: ObservableObject {
     func insert(_ text: String) {
         guard let textView else { return }
         textView.insertText(text, replacementRange: textView.selectedRange())
+        textView.didChangeText()
     }
 
     func wrap(_ prefix: String, suffix: String? = nil) {
@@ -16,6 +17,7 @@ final class MarkdownEditorBridge: ObservableObject {
         let selected = (textView.string as NSString).substring(with: range)
         let closing = suffix ?? prefix
         textView.insertText(prefix + selected + closing, replacementRange: range)
+        textView.didChangeText()
         if selected.isEmpty {
             textView.setSelectedRange(NSRange(location: range.location + prefix.utf16.count, length: 0))
         }
@@ -41,6 +43,7 @@ final class MarkdownEditorBridge: ObservableObject {
             .map { transform(String($0)) }
             .joined(separator: "\n")
         textView.insertText(transformed, replacementRange: range)
+        textView.didChangeText()
     }
 }
 
