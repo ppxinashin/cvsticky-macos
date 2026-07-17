@@ -8,9 +8,10 @@ private final class ClipboardPanel: NSPanel {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var clipboardPanel: NSPanel?
+    private weak var mainWindow: NSWindow?
     private weak var configuredClipboardStore: ClipboardStore?
     private weak var clipboardSearchField: NSSearchField?
     private let hotKeyManager = GlobalHotKeyManager()
@@ -100,7 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate {
 
     @objc func showMainWindow() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.windows.first(where: { !$0.isKind(of: NSPanel.self) })?.makeKeyAndOrderFront(nil)
+        guard let window = mainWindow ?? findMainWindow() else { return }
+        installMainWindowBehavior(for: window)
+        window.deminiaturize(nil)
+        window.makeKeyAndOrderFront(nil)
     }
 
     @objc func newNote() {
@@ -117,6 +121,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate {
     }
 
     @objc func quit() { NSApp.terminate(nil) }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender === mainWindow || sender.identifier == .cvstickyMainWindow else {
+            return true
+        }
+        sender.orderOut(nil)
+        return false
+    }
 
     @objc private func clipboardSearchChanged(_ sender: NSSearchField) {
         configuredClipboardStore?.searchText = sender.stringValue
@@ -171,19 +183,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate {
     }
 
     private func styleMainWindow() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            guard let window = NSApp.windows.first(where: { !$0.isKind(of: NSPanel.self) }) else { return }
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .hidden
-            window.styleMask.insert(.fullSizeContentView)
-            window.isMovableByWindowBackground = false
-            if #available(macOS 26.0, *) {
-                window.toolbarStyle = .unified
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, let window = findMainWindow() else { return }
+            installMainWindowBehavior(for: window)
+        }
+    }
+
+    private func findMainWindow() -> NSWindow? {
+        if let mainWindow { return mainWindow }
+        return NSApp.windows.first { $0.identifier == .cvstickyMainWindow }
+            ?? NSApp.windows.first { !$0.isKind(of: NSPanel.self) && $0.title == "剪贴笺" }
+    }
+
+    private func installMainWindowBehavior(for window: NSWindow) {
+        mainWindow = window
+        window.identifier = .cvstickyMainWindow
+        window.delegate = self
+        window.isReleasedWhenClosed = false
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.styleMask.insert(.fullSizeContentView)
+        window.isMovableByWindowBackground = false
+        if #available(macOS 26.0, *) {
+            window.toolbarStyle = .unified
         }
     }
 }
 
 private extension NSToolbarItem.Identifier {
     static let clipboardSearch = NSToolbarItem.Identifier("CVSticky.ClipboardSearch")
+}
+
+private extension NSUserInterfaceItemIdentifier {
+    static let cvstickyMainWindow = NSUserInterfaceItemIdentifier("CVSticky.MainWindow")
 }
