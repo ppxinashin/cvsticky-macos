@@ -25,6 +25,8 @@ CVSticky 的原生 macOS 版本，使用 SwiftUI、AppKit、WebKit 和 Swift 6 �
 
 ## 开发
 
+本项目的阶段性实现、技术决策和验证记录见 [开发日志](docs/DEVELOPMENT_LOG.md)。
+
 需要包含 macOS 26 SDK 的完整 Xcode：
 
 ```bash
