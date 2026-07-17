@@ -6,9 +6,18 @@ on:
   pull_request:
 
 jobs:
-  build:
-    runs-on: macos-15
+  test:
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - name: Build
-        run: swift build
+      - name: Select Xcode
+        run: |
+          if [[ -d /Applications/Xcode.app/Contents/Developer ]]; then
+            sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          else
+            sudo xcode-select -s "$(find /Applications -maxdepth 2 -path '*/Contents/Developer' -print | sort | tail -n 1)"
+          fi
+      - name: Test
+        run: swift test
+      - name: Build release bundle
+        run: scripts/build-app.sh
