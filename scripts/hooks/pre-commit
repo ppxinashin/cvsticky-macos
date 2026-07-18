@@ -1,0 +1,35 @@
+#!/bin/sh
+
+branch="$(git symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
+
+if [ "$CVSTICKY_ALLOW_PROTECTED_BRANCH_COMMIT" = "1" ]; then
+  exit 0
+fi
+
+if [ "$branch" = "main" ]; then
+  cat >&2 <<'EOF'
+Error: direct commits to main are not allowed.
+
+Only the repository author may manually merge verified code into main.
+Develop on dev-derived feature branches and submit a pull request instead:
+
+  git switch -c feature/<name> dev
+
+EOF
+  exit 1
+fi
+
+if [ "$branch" = "dev" ]; then
+  cat >&2 <<'EOF'
+Error: direct commits to dev are not allowed.
+
+All changes entering dev must go through a pull request reviewed by the repository author.
+Create a feature branch and commit there instead:
+
+  git switch -c feature/<name> dev
+
+EOF
+  exit 1
+fi
+
+exit 0
