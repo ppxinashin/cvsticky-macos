@@ -13,6 +13,7 @@
 
 - [分支开发、PR 审核与 main 分支保护规范](BRANCH_POLICY.md)
 - [发版规范](Release-Policy.md)
+- [Mac App Store 合规审计记录（2026-07-18）](App-Store-Compliance-Audit.md)
 - [v0.1.1 发布说明](release-notes/v0.1.1.md)
 - [开发日志](DEVELOPMENT_LOG.md)
 
