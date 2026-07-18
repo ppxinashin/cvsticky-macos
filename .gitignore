@@ -1,7 +1,37 @@
+# macOS
 .DS_Store
-/.build
-/dist
-/.swiftpm
-xcuserdata/
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.Spotlight-V100
+.Trashes
+.fseventsd
+
+# Xcode / SwiftPM
+/.build/
+/.swiftpm/
 DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+
+# Build and release artifacts
+/dist/
+*.dSYM/
+*.app
+*.dmg
+*.zip
+
+# Logs and local configuration
+*.log
+.env
+.env.*
+!.env.example
+
+# Codex local state. Keep project-level skills versioned.
+/.codex/*
+!/.codex/skills/
+!/.codex/skills/**
