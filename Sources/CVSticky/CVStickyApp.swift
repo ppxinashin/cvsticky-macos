@@ -34,6 +34,10 @@ struct CVStickyApp: App {
                 }
         }
         .commands {
+            CommandGroup(replacing: .help) {
+                Button("剪贴笺帮助") { appDelegate.showHelp() }
+                    .keyboardShortcut("?", modifiers: .command)
+            }
             CommandGroup(replacing: .newItem) {
                 Button("新建便签") { NotificationCenter.default.post(name: .cvstickyNewNote, object: nil) }
                     .keyboardShortcut("n", modifiers: .command)

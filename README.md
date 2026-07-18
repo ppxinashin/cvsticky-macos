@@ -20,12 +20,13 @@ CVSticky 的原生 macOS 版本，使用 SwiftUI、AppKit、WebKit 和 Swift 6 �
 - 搜索、标签/颜色筛选、列表/网格视图、自定义右键菜单。
 - 最近删除、恢复、彻底删除、ZIP 导入导出。
 - 浅色、深色、跟随系统、主题色、快捷键和 AI 设置。
+- `Command+?` 应用内图文帮助手册，并提供主窗口、剪贴板和编辑器操作说明。
 - API Key 保存在 macOS 钥匙串。
 - 原生菜单栏入口，关闭主窗口后继续监控剪贴板。
 
 ## 开发
 
-更多使用、安装、发布和开发规范见 [文档索引](docs/Home.md)。本项目的阶段性实现、技术决策和验证记录见 [开发日志](docs/DEVELOPMENT_LOG.md)。
+更多使用、安装、发布和开发规范见 [文档索引](docs/Home.md)，图文操作指南见 [帮助手册](docs/Help.md)。本项目的阶段性实现、技术决策和验证记录见 [开发日志](docs/DEVELOPMENT_LOG.md)。
 
 所有代码开发必须在 `dev` 分支或从 `dev` 派生的功能分支进行；进入 `dev` 必须经过作者 PR 审核，`main` 只允许作者本人在验证通过后手动合并。详见 [分支开发、PR 审核与 main 分支保护规范](docs/BRANCH_POLICY.md)。
 

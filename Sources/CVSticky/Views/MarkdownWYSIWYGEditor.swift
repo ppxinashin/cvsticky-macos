@@ -8,6 +8,7 @@ struct MarkdownWYSIWYGEditor: NSViewRepresentable {
     let note: Note
     let darkMode: Bool
     let chromeBackgroundHex: String
+    let accentHex: String
     let editable: Bool
     var onTaskToggle: (String) -> Void
     var onError: (String) -> Void
@@ -44,6 +45,7 @@ struct MarkdownWYSIWYGEditor: NSViewRepresentable {
         context.coordinator.lastMarkdown = markdown
         context.coordinator.desiredMarkdown = markdown
         context.coordinator.lastChromeBackgroundHex = chromeBackgroundHex
+        context.coordinator.lastAccentHex = accentHex
         context.coordinator.desiredEditable = editable
         webView.loadHTMLString(html(), baseURL: note.folderURL)
         return webView
@@ -58,6 +60,13 @@ struct MarkdownWYSIWYGEditor: NSViewRepresentable {
             webView.evaluateJavaScript(
                 "document.documentElement.style.setProperty('--editor-chrome-background', '\(chromeBackgroundHex)')"
             )
+        }
+        if accentHex != context.coordinator.lastAccentHex {
+            context.coordinator.lastAccentHex = accentHex
+            webView.evaluateJavaScript("""
+                document.documentElement.style.setProperty('--editor-accent', '\(accentHex)');
+                document.documentElement.style.setProperty('--editor-selection', '\(selectionColorCSS)');
+                """)
         }
         context.coordinator.applyDesiredMarkdown(in: webView)
     }
@@ -111,27 +120,28 @@ struct MarkdownWYSIWYGEditor: NSViewRepresentable {
         <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src cvsticky-img: file: data: blob: https: http:; font-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; frame-src 'none'">
         <style>
         \(stylesheet)
-        :root{color-scheme:\(darkMode ? "dark" : "light");--editor-chrome-background:\(chromeBackgroundHex)}
+        :root{color-scheme:\(darkMode ? "dark" : "light");--editor-chrome-background:\(chromeBackgroundHex);--editor-accent:\(accentHex);--editor-selection:\(selectionColorCSS);accent-color:var(--editor-accent)}
         html{height:100%;margin:0;background:transparent;color:\(foreground)}
         body{min-height:100%;margin:0;overflow:visible;background:transparent;color:\(foreground);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
+        ::selection{background:var(--editor-selection)}
         #editor{min-height:100vh}
         .milkdown{
           min-height:100%;background:transparent;color:\(foreground);
           --crepe-color-background:\(background);--crepe-color-on-background:\(foreground);
           --crepe-color-surface:\(surface);--crepe-color-surface-low:\(surfaceLow);
           --crepe-color-on-surface:\(foreground);--crepe-color-on-surface-variant:\(secondary);
-          --crepe-color-outline:\(outline);--crepe-color-primary:#0a84ff;
+          --crepe-color-outline:\(outline);--crepe-color-primary:var(--editor-accent);
           --crepe-color-secondary:\(surfaceLow);--crepe-color-on-secondary:\(foreground);
           --crepe-color-inverse:\(foreground);--crepe-color-on-inverse:\(background);
           --crepe-color-inline-code:#ff7ab2;--crepe-color-error:#ff453a;
-          --crepe-color-hover:\(surfaceLow);--crepe-color-selected:rgba(10,132,255,.22);
+          --crepe-color-hover:\(surfaceLow);--crepe-color-selected:var(--editor-selection);
           --crepe-color-inline-area:\(surfaceLow);
           --crepe-font-title:-apple-system,BlinkMacSystemFont,"SF Pro Display",sans-serif;
           --crepe-font-default:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif;
           --crepe-font-code:ui-monospace,SFMono-Regular,Menlo,monospace;
           --crepe-shadow-1:0 2px 8px rgba(0,0,0,.18);--crepe-shadow-2:0 6px 18px rgba(0,0,0,.22)
         }
-        .milkdown .ProseMirror{box-sizing:border-box;max-width:900px;min-height:100%;margin:0 auto;padding:32px 42px 160px;outline:none;font-size:16px;line-height:1.7}
+        .milkdown .ProseMirror{box-sizing:border-box;max-width:900px;min-height:100%;margin:0 auto;padding:32px 42px 160px;outline:none;font-size:16px;line-height:1.7;caret-color:var(--editor-accent)}
         .milkdown img{max-width:100%;border-radius:12px}
         .cvsticky-readonly .milkdown .label-wrapper{pointer-events:auto!important;cursor:default!important}
         .cvsticky-readonly .milkdown .label-wrapper .label,
@@ -139,7 +149,7 @@ struct MarkdownWYSIWYGEditor: NSViewRepresentable {
         .cvsticky-readonly .milkdown .ProseMirror{caret-color:transparent}
         .milkdown .cvsticky-task-checkbox{appearance:none;-webkit-appearance:none;width:24px;height:32px;margin:0;padding:0;display:block;position:relative;cursor:pointer;border:0;background:transparent}
         .milkdown .cvsticky-task-checkbox::before{content:"";box-sizing:border-box;position:absolute;left:4px;top:8px;width:16px;height:16px;border:1.5px solid \(outline);border-radius:4px;background:transparent}
-        .milkdown .cvsticky-task-checkbox[aria-checked="true"]::before{border-color:#0a84ff;background:#0a84ff}
+        .milkdown .cvsticky-task-checkbox[aria-checked="true"]::before{border-color:var(--editor-accent);background:var(--editor-accent)}
         .milkdown .cvsticky-task-checkbox[aria-checked="true"]::after{content:"";position:absolute;left:8px;top:9px;width:5px;height:9px;border:solid white;border-width:0 2px 2px 0;transform:rotate(45deg)}
         .milkdown .milkdown-list-item-block li .label-wrapper{width:24px;height:32px;flex:0 0 24px;align-items:center;justify-content:center}
         .milkdown .milkdown-list-item-block[data-task-checked="true"] > .list-item > .children > .content-dom > :first-child{text-decoration:line-through;text-decoration-thickness:1px;opacity:.62}
@@ -195,6 +205,19 @@ struct MarkdownWYSIWYGEditor: NSViewRepresentable {
         return text
     }
 
+    private var selectionColorCSS: String {
+        guard let color = NSColor(hex: accentHex)?.usingColorSpace(.sRGB) else {
+            return "rgba(10,132,255,0.28)"
+        }
+        return String(
+            format: "rgba(%d,%d,%d,%.2f)",
+            Int((color.redComponent * 255).rounded()),
+            Int((color.greenComponent * 255).rounded()),
+            Int((color.blueComponent * 255).rounded()),
+            darkMode ? 0.32 : 0.24
+        )
+    }
+
     static func editorMarkdown(_ markdown: String) -> String {
         markdown
             .replacingOccurrences(of: "](./img/", with: "](cvsticky-img:///img/")
@@ -209,6 +232,7 @@ struct MarkdownWYSIWYGEditor: NSViewRepresentable {
         var lastMarkdown = ""
         var desiredMarkdown = ""
         var lastChromeBackgroundHex = ""
+        var lastAccentHex = ""
         var lastAppliedEditable: Bool?
         var desiredEditable = false
         var isReady = false

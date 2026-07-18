@@ -7,6 +7,7 @@ struct MainView: View {
     @EnvironmentObject private var noteStore: NoteStore
     @EnvironmentObject private var clipboardStore: ClipboardStore
     @EnvironmentObject private var settings: SettingsStore
+    @Environment(\.controlActiveState) private var controlActiveState
 
     @State private var selection: String?
     @State private var search = ""
@@ -15,9 +16,9 @@ struct MainView: View {
     @State private var selectedColor: String?
     @State private var sidebarSelection: SidebarDestination? = .notes
     @State private var sidebarVisible = true
-    @State private var pendingPermanentDelete: Note?
-    @State private var showingClearTrashConfirmation = false
+    @State private var pendingAlert: MainAlert?
     @State private var newlyCreatedNoteID: String?
+    @FocusState private var focusedColumn: MainColumn?
 
     private var visibleNotes: [Note] {
         let source = showingTrash ? noteStore.deletedNotes : noteStore.notes
@@ -49,6 +50,7 @@ struct MainView: View {
             }
         }
         .frame(minWidth: 900, minHeight: 620)
+        .tint(Color(nsColor: settings.accentColor))
         .accentColor(Color(nsColor: settings.accentColor))
         .searchable(text: $search, placement: .toolbar, prompt: "搜索便签")
         .toolbar {
@@ -73,25 +75,7 @@ struct MainView: View {
                 }
             }
         }
-        .alert(item: $pendingPermanentDelete) { note in
-            Alert(
-                title: Text("彻底删除“\(note.title)”？"),
-                message: Text("此操作无法撤销。"),
-                primaryButton: .destructive(Text("彻底删除")) {
-                    noteStore.deletePermanently(note)
-                },
-                secondaryButton: .cancel()
-            )
-        }
-        .alert("清空最近删除？", isPresented: $showingClearTrashConfirmation) {
-            Button("取消", role: .cancel) {}
-            Button("清空", role: .destructive) {
-                selection = nil
-                noteStore.emptyTrash()
-            }
-        } message: {
-            Text("将彻底删除最近删除中的 \(noteStore.deletedNotes.count) 条便签，此操作无法撤销。")
-        }
+        .alert(item: $pendingAlert, content: alert)
         .onReceive(NotificationCenter.default.publisher(for: .cvstickyNewNote)) { _ in
             createNote()
         }
@@ -106,13 +90,23 @@ struct MainView: View {
     private var sidebar: some View {
         List(selection: $sidebarSelection) {
             Section("便签") {
-                sidebarRow("全部便签", symbol: "note.text", count: noteStore.notes.count)
+                sidebarRow(
+                    "全部便签",
+                    symbol: "note.text",
+                    count: noteStore.notes.count,
+                    destination: .notes
+                )
                     .tag(SidebarDestination.notes)
-                sidebarRow("最近删除", symbol: "trash", count: noteStore.deletedNotes.count)
+                sidebarRow(
+                    "最近删除",
+                    symbol: "trash",
+                    count: noteStore.deletedNotes.count,
+                    destination: .trash
+                )
                     .contentShape(Rectangle())
                     .contextMenu {
                         Button("清空最近删除…", role: .destructive) {
-                            showingClearTrashConfirmation = true
+                            pendingAlert = .clearTrash(count: noteStore.deletedNotes.count)
                         }
                         .disabled(noteStore.deletedNotes.isEmpty)
                     }
@@ -122,7 +116,7 @@ struct MainView: View {
             if !allTags.isEmpty {
                 Section("标签") {
                     ForEach(allTags, id: \.self) { tag in
-                        sidebarRow(tag, symbol: "tag", count: nil)
+                        sidebarRow(tag, symbol: "tag", count: nil, destination: .tag(tag))
                             .tag(SidebarDestination.tag(tag))
                     }
                 }
@@ -130,18 +124,14 @@ struct MainView: View {
 
             Section("颜色") {
                 ForEach(noteColors, id: \.hex) { item in
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(Color(nsColor: NSColor(hex: item.hex)!))
-                            .frame(width: 10, height: 10)
-                        Text(item.name)
-                    }
+                    sidebarColorRow(item.name, hex: item.hex)
                     .tag(SidebarDestination.color(item.hex))
                     .accessibilityLabel("\(item.name)便签")
                 }
             }
         }
         .listStyle(.sidebar)
+        .focused($focusedColumn, equals: .sidebar)
     }
 
     private var noteList: some View {
@@ -176,6 +166,7 @@ struct MainView: View {
                             Section {
                                 ForEach(notes(in: year)) { note in
                                     noteRow(note).tag(note.id)
+                                        .listRowBackground(Color.clear)
                                 }
                             } header: {
                                 Text(verbatim: "\(year)年")
@@ -187,6 +178,7 @@ struct MainView: View {
                         }
                     }
                     .listStyle(.inset)
+                    .focused($focusedColumn, equals: .noteList)
                 }
             }
         }
@@ -228,22 +220,33 @@ struct MainView: View {
     }
 
     private func noteRow(_ note: Note) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(note.title)
-                .font(.body.weight(.semibold))
-                .lineLimit(1)
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(Self.noteListDateFormatter.string(from: note.updatedAt))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                Text(listPreview(note))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        SwipeActionRow(
+            actions: noteSwipeActions(for: note),
+            isSelected: selection == note.id,
+            isSelectionActive: focusedColumn == .noteList,
+            rowBackground: Color(nsColor: .controlBackgroundColor),
+            onTap: {
+                focusedColumn = .noteList
+                selection = note.id
             }
-            .font(.subheadline)
+        ) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(note.title)
+                    .font(.body.weight(.semibold))
+                    .lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(Self.noteListDateFormatter.string(from: note.updatedAt))
+                        .foregroundStyle(.secondary)
+                        .fixedSize()
+                    Text(listPreview(note))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .font(.subheadline)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 6)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .overlay(alignment: .bottom) {
             Divider()
@@ -253,34 +256,119 @@ struct MainView: View {
         .contextMenu { noteContextMenu(note) }
     }
 
+    private func noteSwipeActions(for note: Note) -> [SwipeRowAction] {
+        if showingTrash {
+            return [
+                SwipeRowAction(title: "恢复便签", systemImage: "arrow.uturn.backward", tint: .green) {
+                    noteStore.restore(note)
+                },
+                SwipeRowAction(title: "删除", systemImage: "trash", tint: .red) {
+                    pendingAlert = .delete(.permanent(note))
+                }
+            ]
+        }
+
+        return [
+            SwipeRowAction(title: "悬浮窗", systemImage: "pin.square", tint: .blue) {
+                float(note)
+            },
+            SwipeRowAction(title: "删除", systemImage: "trash", tint: .red) {
+                pendingAlert = .delete(.trash(note))
+            }
+        ]
+    }
+
     @ViewBuilder
     private func noteContextMenu(_ note: Note) -> some View {
         if showingTrash {
             Button("恢复") { noteStore.restore(note) }
             Divider()
-            Button("彻底删除…", role: .destructive) { pendingPermanentDelete = note }
+            Button("删除…", role: .destructive) { pendingAlert = .delete(.permanent(note)) }
         } else {
             Button("打开") { selection = note.id }
+            Button("悬浮窗") { float(note) }
             Button("复制全文") { clipboardStore.copy(note.markdown) }
             Divider()
-            Button("移到最近删除") { noteStore.moveToTrash(note); if selection == note.id { selection = nil } }
+            Button("删除…", role: .destructive) { pendingAlert = .delete(.trash(note)) }
         }
     }
 
-    private func sidebarRow(_ title: String, symbol: String, count: Int?) -> some View {
-        Label {
+    private func sidebarRow(
+        _ title: String,
+        symbol: String,
+        count: Int?,
+        destination: SidebarDestination
+    ) -> some View {
+        styledSidebarRow(destination: destination) {
+            Label {
+                HStack {
+                    Text(title).lineLimit(1)
+                    Spacer()
+                    if let count {
+                        Text("\(count)")
+                            .foregroundStyle(sidebarSecondaryColor(for: destination))
+                            .monospacedDigit()
+                    }
+                }
+            } icon: {
+                Image(systemName: symbol)
+            }
+        }
+    }
+
+    private func sidebarColorRow(_ title: String, hex: String) -> some View {
+        let destination = SidebarDestination.color(hex)
+        return styledSidebarRow(destination: destination) {
             HStack {
-                Text(title).lineLimit(1)
-                Spacer()
-                if let count {
-                    Text("\(count)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
+                Circle()
+                    .fill(Color(nsColor: NSColor(hex: hex)!))
+                    .frame(width: 10, height: 10)
+                Text(title)
+            }
+        }
+    }
+
+    private func styledSidebarRow<Content: View>(
+        destination: SidebarDestination,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let selected = sidebarSelection == destination
+        let emphasized = selected && hasEmphasizedSidebarSelection
+        return content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 5)
+            .foregroundStyle(
+                emphasized
+                    ? Color(nsColor: .alternateSelectedControlTextColor)
+                    : Color.primary
+            )
+            .background {
+                ZStack {
+                    if selected {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(
+                                emphasized
+                                    ? Color(nsColor: settings.accentColor)
+                                    : Color(nsColor: .unemphasizedSelectedContentBackgroundColor)
+                            )
+                    }
+                    ListSelectionHighlightSuppressor()
+                        .allowsHitTesting(false)
                 }
             }
-        } icon: {
-            Image(systemName: symbol)
-        }
+            .contentShape(Rectangle())
+            .listRowBackground(Color.clear)
+    }
+
+    private var hasEmphasizedSidebarSelection: Bool {
+        focusedColumn == .sidebar && controlActiveState == .key
+    }
+
+    private func sidebarSecondaryColor(for destination: SidebarDestination) -> Color {
+        sidebarSelection == destination && hasEmphasizedSidebarSelection
+            ? Color(nsColor: .alternateSelectedControlTextColor).opacity(0.72)
+            : Color.secondary
     }
 
     private func preview(_ note: Note) -> String {
@@ -315,12 +403,52 @@ struct MainView: View {
         if let note = noteStore.create() {
             newlyCreatedNoteID = note.id
             selection = note.id
+            focusedColumn = .noteList
         }
     }
 
     private func toggleSidebar() {
         withAnimation(.easeInOut(duration: 0.18)) {
             sidebarVisible.toggle()
+        }
+    }
+
+    private func float(_ note: Note) {
+        NotificationCenter.default.post(name: .cvstickyFloatNote, object: note.id)
+    }
+
+    private func performDelete(_ request: PendingNoteDelete) {
+        switch request {
+        case .trash(let note):
+            noteStore.moveToTrash(note)
+            if selection == note.id { selection = nil }
+        case .permanent(let note):
+            noteStore.deletePermanently(note)
+            if selection == note.id { selection = nil }
+        }
+    }
+
+    private func alert(_ alert: MainAlert) -> Alert {
+        switch alert {
+        case .delete(let request):
+            return Alert(
+                title: Text("删除“\(request.note.title)”？"),
+                message: Text(request.message),
+                primaryButton: .destructive(Text("删除")) {
+                    performDelete(request)
+                },
+                secondaryButton: .cancel()
+            )
+        case .clearTrash(let count):
+            return Alert(
+                title: Text("清空最近删除？"),
+                message: Text("将彻底删除最近删除中的 \(count) 条便签，此操作无法撤销。"),
+                primaryButton: .destructive(Text("清空")) {
+                    selection = nil
+                    noteStore.emptyTrash()
+                },
+                secondaryButton: .cancel()
+            )
         }
     }
 
@@ -364,6 +492,50 @@ private enum SidebarDestination: Hashable {
     case trash
     case tag(String)
     case color(String)
+}
+
+private enum MainColumn: Hashable {
+    case sidebar
+    case noteList
+}
+
+private enum MainAlert: Identifiable {
+    case delete(PendingNoteDelete)
+    case clearTrash(count: Int)
+
+    var id: String {
+        switch self {
+        case .delete(let request): return "delete-\(request.id)"
+        case .clearTrash(let count): return "clear-trash-\(count)"
+        }
+    }
+}
+
+private enum PendingNoteDelete: Identifiable {
+    case trash(Note)
+    case permanent(Note)
+
+    var id: String {
+        switch self {
+        case .trash(let note): return "trash-\(note.id)"
+        case .permanent(let note): return "permanent-\(note.id)"
+        }
+    }
+
+    var note: Note {
+        switch self {
+        case .trash(let note), .permanent(let note): return note
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .trash:
+            return "便签会移动到最近删除。如需彻底删除，请到最近删除中彻底删除。"
+        case .permanent:
+            return "将从最近删除中彻底删除，此操作无法撤销。"
+        }
+    }
 }
 
 struct SearchField: NSViewRepresentable {
@@ -415,4 +587,5 @@ extension Notification.Name {
     static let cvstickyNewNote = Notification.Name("CVSticky.newNote")
     static let cvstickyToggleSidebar = Notification.Name("CVSticky.toggleSidebar")
     static let cvstickyShowSettings = Notification.Name("CVSticky.showSettings")
+    static let cvstickyFloatNote = Notification.Name("CVSticky.floatNote")
 }

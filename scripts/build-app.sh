@@ -47,12 +47,7 @@ mkdir -p "$DMG_STAGING_DIR"
 cp -R "$APP_DIR" "$DMG_STAGING_DIR/"
 ln -s /Applications "$DMG_STAGING_DIR/Applications"
 
-hdiutil create \
-  -volname "CVSticky" \
-  -srcfolder "$DMG_STAGING_DIR" \
-  -ov \
-  -format UDZO \
-  "$DMG_PATH"
+"$PROJECT_DIR/scripts/create-pretty-dmg.sh" "$DMG_STAGING_DIR" "$DMG_PATH" "CVSticky"
 
 if [[ "$CODE_SIGN_IDENTITY" != "-" ]]; then
   codesign --force --timestamp --sign "$CODE_SIGN_IDENTITY" "$DMG_PATH"

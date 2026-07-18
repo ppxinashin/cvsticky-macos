@@ -4,6 +4,7 @@ import SwiftUI
 struct NoteEditorView: View {
     @EnvironmentObject private var noteStore: NoteStore
     @EnvironmentObject private var clipboardStore: ClipboardStore
+    @EnvironmentObject private var settings: SettingsStore
     @Environment(\.colorScheme) private var colorScheme
     let note: Note
     let startsEditing: Bool
@@ -60,6 +61,7 @@ struct NoteEditorView: View {
                 note: note,
                 darkMode: colorScheme == .dark,
                 chromeBackgroundHex: editorChromeBackgroundHex,
+                accentHex: settings.effectiveAccentHex,
                 editable: editing,
                 onTaskToggle: toggleTask,
                 onError: { status = $0 }
@@ -136,7 +138,8 @@ struct NoteEditorView: View {
                     Label("编辑", systemImage: "square.and.pencil")
                 }
                 .buttonStyle(.borderless)
-                    .keyboardShortcut("e", modifiers: .command)
+                .help("编辑（⌘E）")
+                .keyboardShortcut("e", modifiers: .command)
             }
         }
         .controlSize(.regular)
@@ -208,7 +211,11 @@ struct NoteEditorView: View {
                 Button("删除线　⌘⇧X") { sendEditorCommand("strike") }
                 Button("行内代码　⌘E") { sendEditorCommand("code") }
             } label: {
-                Label("格式", systemImage: "textformat")
+                formattingMenuLabel("格式", systemImage: "textformat")
+            }
+            .menuIndicator(.hidden)
+            .overlay(alignment: .trailing) {
+                formattingMenuIndicator
             }
 
             Menu {
@@ -217,7 +224,11 @@ struct NoteEditorView: View {
                 Button("任务列表") { sendEditorCommand("taskList") }
                 Button("引用") { sendEditorCommand("quote") }
             } label: {
-                Label("列表", systemImage: "list.bullet")
+                formattingMenuLabel("列表", systemImage: "list.bullet")
+            }
+            .menuIndicator(.hidden)
+            .overlay(alignment: .trailing) {
+                formattingMenuIndicator
             }
 
             Menu {
@@ -228,7 +239,11 @@ struct NoteEditorView: View {
                 Button("链接　⌘K") { sendEditorCommand("link") }
                 Button("图片…") { sendEditorCommand("image") }
             } label: {
-                Label("插入", systemImage: "plus")
+                formattingMenuLabel("插入", systemImage: "plus")
+            }
+            .menuIndicator(.hidden)
+            .overlay(alignment: .trailing) {
+                formattingMenuIndicator
             }
             .popover(isPresented: $showingTablePicker, arrowEdge: .bottom) {
                 tableSizePicker
@@ -243,6 +258,36 @@ struct NoteEditorView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
         .background(.bar)
+    }
+
+    private func formattingMenuLabel(_ title: String, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Label(title, systemImage: systemImage)
+            Spacer(minLength: 36)
+        }
+        .frame(minWidth: 128)
+    }
+
+    private var formattingMenuIndicator: some View {
+        Image(systemName: "chevron.down")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(formattingMenuIndicatorForeground)
+            .frame(width: 20, height: 20)
+            .background(
+                Color(nsColor: settings.accentColor),
+                in: RoundedRectangle(cornerRadius: 5, style: .continuous)
+            )
+            .padding(.trailing, 5)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    private var formattingMenuIndicatorForeground: Color {
+        guard let color = settings.accentColor.usingColorSpace(.sRGB) else { return .white }
+        let luminance = 0.2126 * color.redComponent
+            + 0.7152 * color.greenComponent
+            + 0.0722 * color.blueComponent
+        return luminance > 0.62 ? Color.black.opacity(0.82) : .white
     }
 
     private var tableSizePicker: some View {

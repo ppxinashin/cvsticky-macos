@@ -14,6 +14,7 @@ struct ClipboardOverlayView: View {
     @State private var aiKind: AITransformKind = .smart
     @State private var aiRequirement = ""
     @State private var aiTargetLanguage = "简体中文"
+    @State private var pendingDelete: ClipboardEntry?
 
     private var selected: ClipboardEntry? {
         let items = clipboardStore.filteredEntries
@@ -38,19 +39,22 @@ struct ClipboardOverlayView: View {
                         Label(selected.isPinned ? "已存为便签" : "存为便签", systemImage: selected.isPinned ? "pin.fill" : "pin")
                     }
                     .disabled(selected.isPinned)
+                    .help(selected.isPinned ? "已存为便签" : "存为便签")
                     Button(action: { generateAI(for: selected) }) {
                         Label("AI 整理", systemImage: "sparkles")
                     }
                     .disabled(aiService.isLoading || selected.type == .image || selected.type == .files)
+                    .help("AI 整理")
                     Menu {
                         Button("删除记录", role: .destructive) {
-                            clipboardStore.delete(selected)
+                            pendingDelete = selected
                         }
                     } label: {
                         Label("更多", systemImage: "ellipsis.circle")
                     }
                     .menuStyle(.borderlessButton)
                     .fixedSize()
+                    .help("更多操作")
                 }
             }
             .controlSize(.small)
@@ -60,6 +64,7 @@ struct ClipboardOverlayView: View {
         }
         .frame(minWidth: 680, idealWidth: 820, minHeight: 440, idealHeight: 560)
         .background(Color(nsColor: .windowBackgroundColor))
+        .tint(Color(nsColor: settings.accentColor))
         .accentColor(Color(nsColor: settings.accentColor))
         .onMoveCommand(perform: moveSelection)
         .onExitCommand(perform: hide)
@@ -69,6 +74,16 @@ struct ClipboardOverlayView: View {
                 .hidden()
         )
         .sheet(item: $aiEntry) { entry in aiSheet(entry) }
+        .alert(item: $pendingDelete) { entry in
+            Alert(
+                title: Text("删除这条剪贴记录？"),
+                message: Text("这会从剪贴板历史中删除该记录，不会影响已保存的便签。"),
+                primaryButton: .destructive(Text("删除")) {
+                    clipboardStore.delete(entry)
+                },
+                secondaryButton: .cancel()
+            )
+        }
         .onAppear(perform: ensureValidSelection)
         .onChange(of: clipboardStore.searchText) { _ in
             selectedID = clipboardStore.filteredEntries.first?.id
@@ -81,42 +96,74 @@ struct ClipboardOverlayView: View {
     private var entryList: some View {
         List(selection: $selectedID) {
             ForEach(clipboardStore.filteredEntries) { entry in
-                HStack(spacing: 10) {
-                    Image(systemName: entry.type.symbol)
-                        .frame(width: 22)
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.displayText.replacingOccurrences(of: "\n", with: " "))
-                            .font(.body)
-                            .lineLimit(2)
-                        HStack {
-                            Text(entry.type.title)
-                            Text("•")
-                            Text(entry.sourceApp)
-                            Spacer()
-                            Text(entry.createdAt, style: .time)
-                        }.font(.caption).foregroundColor(.secondary)
-                    }
-                    if entry.isPinned {
-                        Image(systemName: "pin.fill")
-                            .font(.caption)
+                SwipeActionRow(
+                    actions: clipboardSwipeActions(for: entry),
+                    isSelected: selectedID == entry.id,
+                    rowBackground: Color(nsColor: .controlBackgroundColor),
+                    onTap: { selectedID = entry.id }
+                ) {
+                    HStack(spacing: 10) {
+                        Image(systemName: entry.type.symbol)
+                            .frame(width: 22)
                             .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(entry.displayText.replacingOccurrences(of: "\n", with: " "))
+                                .font(.body)
+                                .lineLimit(2)
+                            HStack {
+                                Text(entry.type.title)
+                                Text("•")
+                                Text(entry.sourceApp)
+                                Spacer()
+                                Text(entry.createdAt, style: .time)
+                            }.font(.caption).foregroundStyle(.secondary)
+                        }
+                        if entry.isPinned {
+                            Image(systemName: "pin.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 3)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
-                .padding(.vertical, 3)
                 .tag(entry.id)
                 .contextMenu {
                     Button("复制") { clipboardStore.copy(entry); copied() }
-                    Button("固定为便签") { pin(entry) }.disabled(entry.isPinned)
-                    Button("AI 整理") { generateAI(for: entry) }.disabled(entry.type == .image || entry.type == .files)
+                    Button("置顶") { pin(entry) }.disabled(entry.isPinned)
+                    Button("AI 摘要") { generateSummary(for: entry) }.disabled(entry.type == .image || entry.type == .files)
                     Divider()
-                    Button("删除") { clipboardStore.delete(entry) }
+                    Button("删除", role: .destructive) { pendingDelete = entry }
                 }
+                .listRowBackground(Color.clear)
             }
         }
         .listStyle(.inset(alternatesRowBackgrounds: false))
+    }
+
+    private func clipboardSwipeActions(for entry: ClipboardEntry) -> [SwipeRowAction] {
+        [
+            SwipeRowAction(
+                title: entry.isPinned ? "已置顶为便签" : "置顶为便签",
+                systemImage: entry.isPinned ? "pin.fill" : "pin",
+                tint: .blue,
+                isDisabled: entry.isPinned
+            ) {
+                pin(entry)
+            },
+            SwipeRowAction(
+                title: "AI 摘要",
+                systemImage: "sparkles",
+                tint: .purple,
+                isDisabled: entry.type == .image || entry.type == .files || aiService.isLoading
+            ) {
+                generateSummary(for: entry)
+            },
+            SwipeRowAction(title: "删除", systemImage: "trash", tint: .red) {
+                pendingDelete = entry
+            }
+        ]
     }
 
     @ViewBuilder
@@ -269,6 +316,15 @@ struct ClipboardOverlayView: View {
     private func generateAI(for entry: ClipboardEntry) {
         aiEntry = entry
         aiKind = .smart
+        aiRequirement = ""
+        aiTargetLanguage = "简体中文"
+        aiActions = []
+        generateAI(for: entry, append: false)
+    }
+
+    private func generateSummary(for entry: ClipboardEntry) {
+        aiEntry = entry
+        aiKind = .summary
         aiRequirement = ""
         aiTargetLanguage = "简体中文"
         aiActions = []

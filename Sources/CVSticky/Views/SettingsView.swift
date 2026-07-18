@@ -19,6 +19,8 @@ struct SettingsView: View {
             settingsTab("数据", symbol: "externaldrive", content: dataPane)
         }
         .frame(width: 620, height: 400)
+        .tint(Color(nsColor: settings.accentColor))
+        .accentColor(Color(nsColor: settings.accentColor))
         .onAppear { aiDraft = settings.ai }
     }
 
@@ -29,8 +31,15 @@ struct SettingsView: View {
                 ForEach(AppearanceMode.allCases) { Text($0.title).tag($0) }
             }
             .pickerStyle(.segmented)
-            ColorPicker("主题色", selection: accentColor, supportsOpacity: false)
+            Toggle("跟随系统主题色", isOn: $settings.followsSystemAccent)
+            ColorPicker("自定义主题色", selection: accentColor, supportsOpacity: false)
                 .frame(maxWidth: 280)
+                .disabled(settings.followsSystemAccent)
+            Text(settings.followsSystemAccent
+                 ? "当前使用 macOS 系统强调色，中文输入法候选栏会保持一致。"
+                 : "自定义主题色只影响应用内界面，系统输入法候选栏仍使用 macOS 强调色。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -91,6 +100,7 @@ struct SettingsView: View {
             set: { color in
                 if let hex = NSColor(color).hexString {
                     settings.accentHex = hex
+                    settings.followsSystemAccent = false
                 }
             }
         )

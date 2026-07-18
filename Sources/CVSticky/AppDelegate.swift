@@ -11,19 +11,36 @@ private final class ClipboardPanel: NSPanel {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSWindowDelegate {
     private var statusItem: NSStatusItem?
     private var clipboardPanel: NSPanel?
+    private var helpWindow: NSWindow?
+    private var floatingNoteWindows: [String: NSWindow] = [:]
     private weak var mainWindow: NSWindow?
     private weak var configuredClipboardStore: ClipboardStore?
+    private weak var configuredNoteStore: NoteStore?
+    private weak var configuredSettings: SettingsStore?
+    private weak var configuredAIService: AIService?
     private weak var clipboardSearchField: NSSearchField?
     private let hotKeyManager = GlobalHotKeyManager()
     private var cancellables = Set<AnyCancellable>()
+    private var helpKeyMonitor: Any?
     private var configured = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         setupStatusItem()
+        helpKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard event.keyCode == 44, modifiers == [.command, .shift] else { return event }
+            self?.showHelp()
+            return nil
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showMainWindow()
+        return false
+    }
 
     func configure(
         clipboardStore: ClipboardStore,
@@ -34,6 +51,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         guard !configured else { return }
         configured = true
         configuredClipboardStore = clipboardStore
+        configuredNoteStore = noteStore
+        configuredSettings = settings
+        configuredAIService = aiService
 
         let root = ClipboardOverlayView()
             .environmentObject(clipboardStore)
@@ -80,6 +100,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
             .sink { [weak self] _ in self?.showSettings() }
             .store(in: &cancellables)
 
+        NotificationCenter.default.publisher(for: .cvstickyFloatNote)
+            .sink { [weak self] notification in
+                guard let id = notification.object as? String else { return }
+                self?.showFloatingNote(id: id)
+            }
+            .store(in: &cancellables)
+
         styleMainWindow()
     }
 
@@ -120,14 +147,96 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSToolbarDelegate, NSW
         _ = NSApp.sendAction(Selector(("showPreferencesWindow:")), to: nil, from: self)
     }
 
+    @objc func showHelp() {
+        NSApp.activate(ignoringOtherApps: true)
+        if let helpWindow {
+            helpWindow.deminiaturize(nil)
+            helpWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        guard let settings = configuredSettings else { return }
+        let root = HelpView()
+            .environmentObject(settings)
+        let controller = NSHostingController(rootView: root)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 920, height: 720),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.title = "剪贴笺帮助"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.toolbarStyle = .unified
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 720, height: 560)
+        window.center()
+        helpWindow = window
+        window.makeKeyAndOrderFront(nil)
+    }
+
     @objc func quit() { NSApp.terminate(nil) }
 
+    func showFloatingNote(id: String) {
+        guard let noteStore = configuredNoteStore,
+              let clipboardStore = configuredClipboardStore,
+              let settings = configuredSettings,
+              let aiService = configuredAIService,
+              let note = noteStore.notes.first(where: { $0.id == id })
+        else { return }
+
+        if let window = floatingNoteWindows[id] {
+            window.deminiaturize(nil)
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let root = FloatingNoteView(noteID: id, fallback: note) { [weak self] in
+            self?.closeFloatingNote(id: id)
+        }
+            .environmentObject(noteStore)
+            .environmentObject(clipboardStore)
+            .environmentObject(settings)
+            .environmentObject(aiService)
+        let controller = NSHostingController(rootView: root)
+        let window = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 560),
+            styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentViewController = controller
+        window.title = note.title
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isReleasedWhenClosed = false
+        window.level = .floating
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.minSize = NSSize(width: 360, height: 420)
+        window.center()
+        window.delegate = self
+        floatingNoteWindows[id] = window
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if let id = floatingNoteWindows.first(where: { $0.value === sender })?.key {
+            floatingNoteWindows[id] = nil
+            return true
+        }
         guard sender === mainWindow || sender.identifier == .cvstickyMainWindow else {
             return true
         }
         sender.orderOut(nil)
         return false
+    }
+
+    private func closeFloatingNote(id: String) {
+        floatingNoteWindows[id]?.close()
+        floatingNoteWindows[id] = nil
     }
 
     @objc private func clipboardSearchChanged(_ sender: NSSearchField) {

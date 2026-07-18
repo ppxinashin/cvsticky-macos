@@ -3,8 +3,9 @@ import Foundation
 import Security
 
 @MainActor
-final class SettingsStore: ObservableObject {
+final class SettingsStore: NSObject, ObservableObject {
     @Published var appearance: AppearanceMode { didSet { persistAndApply() } }
+    @Published var followsSystemAccent: Bool { didSet { persist() } }
     @Published var accentHex: String { didSet { persist() } }
     @Published var hotKey: HotKeyConfiguration { didSet { persist() } }
     @Published var ai: AIConfiguration { didSet { persist() } }
@@ -13,9 +14,10 @@ final class SettingsStore: ObservableObject {
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
-    init() {
+    override init() {
         let localDecoder = JSONDecoder()
         appearance = AppearanceMode(rawValue: defaults.string(forKey: "appearance") ?? "system") ?? .system
+        followsSystemAccent = defaults.bool(forKey: "followsSystemAccent")
         accentHex = defaults.string(forKey: "accentHex") ?? "#0A84FF"
         hotKey = defaults.data(forKey: "hotKey")
             .flatMap { try? localDecoder.decode(HotKeyConfiguration.self, from: $0) }
@@ -25,7 +27,14 @@ final class SettingsStore: ObservableObject {
             ?? AIConfiguration()
         savedAI.apiKey = KeychainStore.read(service: "CVSticky", account: "ai_api_key") ?? ""
         ai = savedAI
+        super.init()
         applyAppearance()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(systemColorsDidChange),
+            name: NSColor.systemColorsDidChangeNotification,
+            object: nil
+        )
     }
 
     func updateAI(_ configuration: AIConfiguration) {
@@ -37,7 +46,18 @@ final class SettingsStore: ObservableObject {
         }
     }
 
-    var accentColor: NSColor { NSColor(hex: accentHex) ?? .controlAccentColor }
+    var accentColor: NSColor {
+        followsSystemAccent ? .controlAccentColor : (NSColor(hex: accentHex) ?? .controlAccentColor)
+    }
+
+    var effectiveAccentHex: String {
+        accentColor.hexString ?? accentHex
+    }
+
+    @objc private func systemColorsDidChange() {
+        guard followsSystemAccent else { return }
+        objectWillChange.send()
+    }
 
     private func persistAndApply() {
         persist()
@@ -46,6 +66,7 @@ final class SettingsStore: ObservableObject {
 
     private func persist() {
         defaults.set(appearance.rawValue, forKey: "appearance")
+        defaults.set(followsSystemAccent, forKey: "followsSystemAccent")
         defaults.set(accentHex, forKey: "accentHex")
         defaults.set(try? encoder.encode(hotKey), forKey: "hotKey")
         var safeAI = ai

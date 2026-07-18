@@ -2,6 +2,8 @@
 
 本文按当前原生 macOS 版本维护。旧 `paste_notes` 仓库中的 Windows、Linux CLI、Tauri 和 CodeMirror 说明不适用于本仓库。
 
+需要图文引导时，可在应用中按 `Command+?`，或阅读[剪贴笺帮助手册](Help.md)。
+
 ## 安装与运行
 
 普通用户请从项目 GitHub Releases 下载 macOS Apple Silicon 安装包。安装与源码运行方式见 [macOS 安装与运行](MacOS-Install.md)。
@@ -34,8 +36,8 @@ scripts/build-app.sh
 中间是便签列表：
 
 - 支持搜索标题、正文和标签。
-- 支持列表视图和网格视图切换。
-- 普通便签右键菜单包含打开、复制、删除等操作。
+- 支持按年份分组的便签列表。
+- 普通便签支持右滑与右键菜单，可打开、悬浮、复制或删除。
 - 最近删除里的便签支持恢复和彻底删除。
 
 右侧是便签编辑与预览区。当前版本使用单区所见即所得 Markdown 编辑体验，并保持内容以纯 Markdown 文件保存。
@@ -70,7 +72,7 @@ scripts/build-app.sh
 设置页当前可配置：
 
 - 显示模式：浅色、深色、跟随系统。
-- 主题色。
+- 自定义主题色，或跟随 macOS 系统强调色。
 - 全局快捷键。
 - OpenAI Chat Completions 兼容服务地址、模型和 API Key。
 
@@ -130,6 +132,7 @@ Base URL 可填写类似 `https://api.openai.com/v1` 或其他兼容服务地址
 | `Option+3` | 三级标题 |
 | `Command+Shift+8` | 无序列表 |
 | `Command+Shift+7` | 有序列表 |
+| `Command+?` | 打开应用内帮助手册 |
 
 Markdown 预览使用本地打包的 Marked、KaTeX 和 Mermaid 资源，不依赖 CDN。预览禁用原始 HTML，并阻止危险链接协议在 WebView 内执行。
 
