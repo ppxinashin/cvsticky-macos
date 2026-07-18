@@ -1,0 +1,4 @@
+interface:
+  display_name: "CVSticky Package Release"
+  short_description: "Rebuild this project's app bundles and DMGs safely."
+  default_prompt: "Package this CVSticky repository using the verified release-bundle workflow."
