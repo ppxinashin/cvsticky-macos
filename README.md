@@ -24,6 +24,23 @@ CVSticky 的原生 macOS 版本，使用 SwiftUI、AppKit、WebKit 和 Swift 6 �
 - API Key 保存在 macOS 钥匙串。
 - 原生菜单栏入口，关闭主窗口后继续监控剪贴板。
 
+## 通过 Homebrew 安装
+
+CVSticky 支持通过官方 Homebrew Tap 安装：
+
+```bash
+brew install --cask ppxinashin/tap/cvsticky
+```
+
+升级到本项目最新正式版本：
+
+```bash
+brew update
+brew upgrade --cask cvsticky
+```
+
+Homebrew Cask 的版本会跟随本项目发布的最新正式 GitHub Release。
+
 ## 开发
 
 更多使用、安装、发布和开发规范见 [文档索引](docs/Home.md)，图文操作指南见 [帮助手册](docs/Help.md)。本项目的阶段性实现、技术决策和验证记录见 [开发日志](docs/DEVELOPMENT_LOG.md)。
